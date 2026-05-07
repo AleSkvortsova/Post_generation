@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Генератор постов для товара</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="bg-glow"></div>
+    <div class="page">
+        <header class="hero">
+            <h1>Генератор постов для товара</h1>
+            <p class="subtitle">Вставьте ссылку на товар и получите готовый продающий текст в мягком редакторском стиле.</p>
+        </header>
+
+        <main class="dashboard">
+            <div class="top-grid">
+                <form method="POST" class="card form-card" id="generateForm">
+                    <h2 class="card-title">Создание поста</h2>
+
+                    <label for="product_url">Ссылка на товар <span class="required">*</span></label>
+                    <input
+                        type="url"
+                        id="product_url"
+                        name="product_url"
+                        placeholder="https://example.com/product"
+                        value="{{ form_data.product_url }}"
+                    >
+
+                    <label for="tone">Тон поста</label>
+                    <select id="tone" name="tone">
+                        <option value="дружелюбный" {% if form_data.tone == "дружелюбный" %}selected{% endif %}>Дружелюбный</option>
+                        <option value="с юмором" {% if form_data.tone == "с юмором" %}selected{% endif %}>С юмором</option>
+                        <option value="экспертный" {% if form_data.tone == "экспертный" %}selected{% endif %}>Экспертный</option>
+                    </select>
+
+                    {% if error_message %}
+                        <p class="error">{{ error_message }}</p>
+                    {% endif %}
+
+                    <button type="submit" class="primary-btn" id="generateBtn">
+                        <span class="btn-label">Сформировать пост</span>
+                        <span class="btn-spinner" aria-hidden="true"></span>
+                    </button>
+                    <p class="loading-hint" id="loadingHint">Генерация может занять до 10-20 секунд, идет обработка ссылки и запрос к OpenAI...</p>
+                </form>
+
+                <section class="card result-block">
+                    <div class="result-head">
+                        <h2 class="card-title">Готовый пост</h2>
+                        <div class="head-actions">
+                            <button type="button" id="editToggleBtn" class="icon-btn" title="Редактировать пост" aria-label="Редактировать пост">✏️</button>
+                            <button type="button" id="saveEditBtn" class="action-btn action-btn-muted hidden">Сохранить</button>
+                            <button type="button" id="copyBtn" class="action-btn action-btn-muted">Скопировать</button>
+                            <form method="POST" action="{{ url_for('favorites_add') }}">
+                                <input type="hidden" class="js-post-text-input" name="post_text" value="{{ generated_post }}">
+                                <input type="hidden" name="product_url" value="{{ form_data.product_url }}">
+                                <input type="hidden" name="tone" value="{{ form_data.tone }}">
+                                <button type="submit" class="action-btn action-btn-muted">В избранное</button>
+                            </form>
+                        </div>
+                    </div>
+
+                    {% with messages = get_flashed_messages(with_categories=true) %}
+                        {% if messages %}
+                            <div class="flash-stack">
+                                {% for category, message in messages %}
+                                    <div class="flash flash-{{ category }}">{{ message }}</div>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                    {% endwith %}
+
+                    <pre id="postText">{% if generated_post %}{{ generated_post }}{% else %}Здесь появится сгенерированный пост.{% endif %}</pre>
+                    <textarea id="postEditor" class="post-editor hidden" aria-label="Редактирование поста"></textarea>
+                    <p id="copyMessage" class="copy-message"></p>
+
+                    <div class="actions-grid">
+                        <div class="btn-row">
+                            <form method="POST" action="{{ url_for('vk_publish') }}">
+                                <input type="hidden" class="js-post-text-input" name="post_text" value="{{ generated_post }}">
+                                <input type="hidden" name="product_url" value="{{ form_data.product_url }}">
+                                <input type="hidden" name="tone" value="{{ form_data.tone }}">
+                                <input type="hidden" name="publish_at" value="">
+                                <button type="submit" class="action-btn action-btn-primary">Опубликовать сейчас</button>
+                            </form>
+
+                            <form method="POST" action="{{ url_for('vk_publish') }}" class="schedule-form">
+                                <input type="hidden" class="js-post-text-input" name="post_text" value="{{ generated_post }}">
+                                <input type="hidden" name="product_url" value="{{ form_data.product_url }}">
+                                <input type="hidden" name="tone" value="{{ form_data.tone }}">
+
+                                <button type="submit" class="action-btn action-btn-primary">Отложенная публикация</button>
+                                <input type="datetime-local" class="schedule-input" name="publish_at">
+                            </form>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <section class="card tabs-card">
+                <div class="tabs-head">
+                    <div class="tabs">
+                        <button type="button" class="tab-btn is-active" data-tab="favorites">Избранное</button>
+                        <button type="button" class="tab-btn" data-tab="vk">VK</button>
+                    </div>
+                </div>
+
+                <div class="tabs-body">
+                    <div class="tab-panel is-active" id="tab-favorites">
+                        {% if favorites and favorites|length > 0 %}
+                            <div class="list">
+                                {% for f in favorites %}
+                                    <article class="list-item">
+                                        <div class="list-meta">
+                                            <div class="meta-row">
+                                                <span class="pill">#{{ f.id }}</span>
+                                                {% if f.tone %}<span class="pill">{{ f.tone }}</span>{% endif %}
+                                            </div>
+                                            {% if f.product_url %}<a class="list-link" href="{{ f.product_url }}" target="_blank" rel="noreferrer">{{ f.product_url }}</a>{% endif %}
+                                        </div>
+                                        <pre class="mini-pre">{{ f.post_text }}</pre>
+                                        <div class="list-actions">
+                                            <button type="button" class="secondary-btn copy-from" data-text="{{ f.post_text|e }}">Скопировать</button>
+                                            <form method="POST" action="{{ url_for('favorites_delete') }}">
+                                                <input type="hidden" name="favorite_id" value="{{ f.id }}">
+                                                <button type="submit" class="danger-btn">Удалить</button>
+                                            </form>
+                                        </div>
+                                    </article>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            <p class="empty-state">Пока пусто. Сгенерируйте пост и нажмите «В избранное».</p>
+                        {% endif %}
+                    </div>
+
+                    <div class="tab-panel" id="tab-vk">
+                        {% if vk_posts and vk_posts|length > 0 %}
+                            <div class="list">
+                                {% for p in vk_posts %}
+                                    <article class="list-item">
+                                        <div class="list-meta">
+                                            <div class="meta-row">
+                                                <span class="pill">#{{ p.id }}</span>
+                                                <span class="pill status-{{ p.status }}">{{ p.status }}</span>
+                                                {% if p.vk_post_id %}<span class="pill">VK post_id: {{ p.vk_post_id }}</span>{% endif %}
+                                            </div>
+                                            {% if p.publish_at_utc %}<div class="mini-hint">publish_at_utc: {{ p.publish_at_utc }}</div>{% endif %}
+                                            {% if p.error %}<div class="error">{{ p.error }}</div>{% endif %}
+                                        </div>
+                                        <pre class="mini-pre">{{ p.post_text }}</pre>
+                                    </article>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            <p class="empty-state">Пока нет публикаций. Сгенерируйте пост и нажмите «Опубликовать пост».</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        const form = document.getElementById("generateForm");
+        const generateBtn = document.getElementById("generateBtn");
+        const loadingHint = document.getElementById("loadingHint");
+        const copyBtn = document.getElementById("copyBtn");
+        const postText = document.getElementById("postText");
+        const postEditor = document.getElementById("postEditor");
+        const editToggleBtn = document.getElementById("editToggleBtn");
+        const saveEditBtn = document.getElementById("saveEditBtn");
+        const copyMessage = document.getElementById("copyMessage");
+        const postTextInputs = document.querySelectorAll(".js-post-text-input");
+        const placeholderText = "Здесь появится сгенерированный пост.";
+
+        let isEditing = false;
+
+        const getCurrentPostText = () => {
+            if (isEditing) return postEditor.value.trim();
+            return postText.innerText.trim();
+        };
+
+        const setPostTextEverywhere = (value) => {
+            postText.textContent = value || placeholderText;
+            postEditor.value = value || "";
+            postTextInputs.forEach((input) => {
+                input.value = value || "";
+            });
+        };
+
+        setPostTextEverywhere(
+            postText.innerText.trim() === placeholderText ? "" : postText.innerText.trim()
+        );
+
+        form.addEventListener("submit", () => {
+            generateBtn.disabled = true;
+            generateBtn.classList.add("is-loading");
+            loadingHint.classList.add("show");
+            copyMessage.textContent = "";
+        });
+
+        copyBtn.addEventListener("click", async () => {
+            const text = getCurrentPostText();
+            if (!text || text === placeholderText) {
+                copyMessage.textContent = "Сначала сформируйте пост";
+                return;
+            }
+
+            try {
+                await navigator.clipboard.writeText(text);
+                copyMessage.textContent = "Пост скопирован";
+            } catch (error) {
+                copyMessage.textContent = "Не удалось скопировать автоматически";
+            }
+        });
+
+        editToggleBtn.addEventListener("click", () => {
+            const text = getCurrentPostText();
+            if (!text || text === placeholderText) {
+                copyMessage.textContent = "Сначала сформируйте пост";
+                return;
+            }
+
+            isEditing = !isEditing;
+            if (isEditing) {
+                postEditor.value = postText.innerText.trim();
+                postText.classList.add("hidden");
+                postEditor.classList.remove("hidden");
+                saveEditBtn.classList.remove("hidden");
+                editToggleBtn.classList.add("is-active");
+                postEditor.focus();
+            } else {
+                postEditor.classList.add("hidden");
+                postText.classList.remove("hidden");
+                saveEditBtn.classList.add("hidden");
+                editToggleBtn.classList.remove("is-active");
+            }
+        });
+
+        saveEditBtn.addEventListener("click", () => {
+            const edited = postEditor.value.trim();
+            if (!edited) {
+                copyMessage.textContent = "Текст не может быть пустым";
+                return;
+            }
+
+            setPostTextEverywhere(edited);
+            isEditing = false;
+            postEditor.classList.add("hidden");
+            postText.classList.remove("hidden");
+            saveEditBtn.classList.add("hidden");
+            editToggleBtn.classList.remove("is-active");
+            copyMessage.textContent = "Изменения сохранены";
+        });
+
+        document.querySelectorAll(".copy-from").forEach((btn) => {
+            btn.addEventListener("click", async () => {
+                const text = (btn.dataset.text || "").trim();
+                if (!text) return;
+                try {
+                    await navigator.clipboard.writeText(text);
+                    copyMessage.textContent = "Пост скопирован";
+                } catch (error) {
+                    copyMessage.textContent = "Не удалось скопировать автоматически";
+                }
+            });
+        });
+
+        document.querySelectorAll(".tab-btn").forEach((btn) => {
+            btn.addEventListener("click", () => {
+                const tab = btn.dataset.tab;
+                document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("is-active"));
+                document.querySelectorAll(".tab-panel").forEach((p) => p.classList.remove("is-active"));
+
+                btn.classList.add("is-active");
+                if (tab === "favorites") {
+                    document.getElementById("tab-favorites").classList.add("is-active");
+                } else {
+                    document.getElementById("tab-vk").classList.add("is-active");
+                }
+            });
+        });
+    </script>
+</body>
+</html>
